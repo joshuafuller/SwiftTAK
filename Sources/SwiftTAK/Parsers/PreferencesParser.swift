@@ -32,6 +32,7 @@ public struct TAKPreferences {
     public var serverConnectionString = ""
     public var serverEnabled = true
     public var serverCertificates: [String: TAKCertificatePreference] = [:]
+    public var entries: [String: String] = [:]
     
     public var serverCertificatePassword: String {
         get {
@@ -100,6 +101,43 @@ public struct TAKPreferences {
         let splitFile = serverConnectionString.components(separatedBy: ":")
         return splitFile.count > 2 ? splitFile[2] : ""
     }
+
+    public mutating func merge(from other: TAKPreferences) {
+        if !other.userCertificateFile.isEmpty {
+            userCertificateFile = other.userCertificateFile
+        }
+        if !other.userCertificatePassword.isEmpty {
+            userCertificatePassword = other.userCertificatePassword
+        }
+        if !other.serverCertificateFile.isEmpty {
+            serverCertificateFile = other.serverCertificateFile
+        }
+        if !other.serverDescription.isEmpty {
+            serverDescription = other.serverDescription
+        }
+        if !other.serverConnectionString.isEmpty {
+            serverConnectionString = other.serverConnectionString
+        }
+        serverEnabled = other.serverEnabled
+
+        for (key, cert) in other.serverCertificates {
+            if var existing = serverCertificates[key] {
+                if existing.certificateFilePath.isEmpty {
+                    existing.certificateFilePath = cert.certificateFilePath
+                }
+                if existing.certificatePassword.isEmpty {
+                    existing.certificatePassword = cert.certificatePassword
+                }
+                serverCertificates[key] = existing
+            } else {
+                serverCertificates[key] = cert
+            }
+        }
+
+        for (key, value) in other.entries where !value.isEmpty {
+            entries[key] = value
+        }
+    }
 }
 
 public class PreferencesParser: NSObject, XMLParserDelegate {
@@ -114,29 +152,34 @@ public class PreferencesParser: NSObject, XMLParserDelegate {
     
     public func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
         if(elementName == "entry") {
+            let value = textBuffer
+            if !currentAttr.isEmpty {
+                preferences.entries[currentAttr] = value
+            }
+
             switch currentAttr {
             case "description0", "description":
-                preferences.serverDescription = textBuffer
+                preferences.serverDescription = value
             case "connectString0", "connectString":
-                preferences.serverConnectionString = textBuffer
+                preferences.serverConnectionString = value
             case "clientPassword":
-                preferences.userCertificatePassword = textBuffer
+                preferences.userCertificatePassword = value
             case "certificateLocation":
-                preferences.userCertificateFile = textBuffer
+                preferences.userCertificateFile = value
             case "caLocation":
-                preferences.addServerCertificateWithKey(certPath: textBuffer, key: currentAttr)
+                preferences.addServerCertificateWithKey(certPath: value, key: currentAttr)
             case "caPassword":
-                preferences.addServerCertificatePasswordWithKey(password: textBuffer, key: currentAttr)
+                preferences.addServerCertificatePasswordWithKey(password: value, key: currentAttr)
             default:
                 if(currentAttr.starts(with: "caLocation")) {
-                    preferences.addServerCertificateWithKey(certPath: textBuffer, key: currentAttr)
+                    preferences.addServerCertificateWithKey(certPath: value, key: currentAttr)
                 } else if(currentAttr.starts(with: "caPassword")) {
-                    preferences.addServerCertificatePasswordWithKey(password: textBuffer, key: currentAttr)
-                } else {
-                    currentAttr = ""
-                    textBuffer = ""
+                    preferences.addServerCertificatePasswordWithKey(password: value, key: currentAttr)
                 }
             }
+
+            currentAttr = ""
+            textBuffer = ""
         }
     }
     

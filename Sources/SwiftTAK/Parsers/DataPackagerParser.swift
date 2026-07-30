@@ -41,6 +41,7 @@ public struct DataPackageContents {
     public var serverApiPort: String = "8446"
     public var serverSecureApiPort: String = "8443"
     public var serverProtocol: String = "SSL" //TCP, SSL, QUIC
+    public var preferenceItems: [String: String] = [:]
     
     public var hasServerDefined: Bool {
         !serverURL.isEmpty
@@ -134,11 +135,7 @@ public class DataPackageParser: NSObject {
                 }
             }
             
-            let fileUrlString = "\(extractLocation.absoluteString)/\(fileLocation)"
-            guard let fileUrl = URL(string: fileUrlString) else {
-                TAKLogger.error("[DataPackageParser] Unable to create the file location URL from \(fileUrlString)")
-                return nil
-            }
+            let fileUrl = extractLocation.appendingPathComponent(fileLocation)
             return fileUrl
         }
     }
@@ -198,15 +195,11 @@ public class DataPackageParser: NSObject {
                 }
             }
             
-            let fileUrlString = "\(extractLocation.absoluteString)/\(fileLocation)"
-            guard let fileUrl = URL(string: fileUrlString) else {
-                TAKLogger.error("[DataPackageParser] Unable to create the file location URL from \(fileUrlString)")
-                return fileData
-            }
+            let fileUrl = extractLocation.appendingPathComponent(fileLocation)
             do {
                 try fileData.append(Data(contentsOf: fileUrl))
             } catch {
-                TAKLogger.error("[DataPackageParser] Error reading file from \(fileUrlString): \(error)")
+                TAKLogger.error("[DataPackageParser] Error reading file from \(fileUrl.path): \(error)")
             }
         }
 
@@ -267,10 +260,10 @@ public class DataPackageParser: NSObject {
         }
         storeRootDirectory()
         parseManifestFile()
-        let prefsFile = retrievePrefsFile()
-        let prefs = parsePrefsFile(prefsFile: prefsFile)
+        let prefs = mergedPreferences()
         storeUserCertificate(prefs: prefs)
         storeServerCertificates(prefs: prefs)
+        storePreferenceItems(preferences: prefs)
         storePreferences(preferences: prefs)
         TAKLogger.debug("[DataPackageParser]: processArchive Complete")
     }
@@ -301,7 +294,7 @@ public class DataPackageParser: NSObject {
     public func storeUserCertificate(prefs: TAKPreferences) {
         let fileName = prefs.userCertificateFileName()
         guard !fileName.isEmpty else { TAKLogger.debug("[DataPackageParser]: empty file name for user cert!"); return }
-        let certData = retrieveFileFromArchive(fileName: prefs.userCertificateFileName())
+        let certData = resolveCertificateData(prefPath: prefs.userCertificateFile, fileName: fileName)
         packageContents.userCertificate = certData
         TAKLogger.debug("[DataPackageParser]: Storing User Certificate")
         TAKLogger.debug("[DataPackageParser]: " + String(describing: certData))
@@ -333,7 +326,10 @@ public class DataPackageParser: NSObject {
         guard !prefs.serverCertificates.isEmpty else { return }
         var didStoreAtLeastOneCertificate = false
         prefs.serverCertificates.forEach { key, serverCert in
-            let certData = retrieveFileFromArchive(fileName: serverCert.certificateFileName)
+            var certData = retrieveFileFromArchive(fileName: serverCert.certificateFilePath)
+            if certData.isEmpty {
+                certData = retrieveFileFromArchive(fileName: serverCert.certificateFileName)
+            }
             if(!certData.isEmpty) {
                 didStoreAtLeastOneCertificate = true
                 let certPackage = TAKServerCertificatePackage(certificateData: certData, certificatePassword: serverCert.certificatePassword)
@@ -370,6 +366,10 @@ public class DataPackageParser: NSObject {
         }
     }
     
+    func storePreferenceItems(preferences: TAKPreferences) {
+        packageContents.preferenceItems = preferences.entries
+    }
+
     func storePreferences(preferences: TAKPreferences) {
         guard !preferences.serverConnectionAddress().isEmpty else { return }
         packageContents.userCertificatePassword = preferences.userCertificatePassword
@@ -413,17 +413,69 @@ public class DataPackageParser: NSObject {
     }
     
     func retrievePrefsFile() -> String {
-        var prefsFile = ""
-        
-        if let prefFileLocation = dataPackageContents.first(where: {
-            $0.hasSuffix(".pref") &&
-            notHiddenFile($0)
-        }) {
-            prefsFile = prefFileLocation
-        } else {
-            prefsFile = manifestParser.prefsFile()
+        let prefFiles = retrieveAllPrefsFiles()
+        if let primaryPref = prefFiles.first {
+            return primaryPref
         }
-        return prefsFile
+        return manifestParser.prefsFile()
+    }
+
+    func retrieveAllPrefsFiles() -> [String] {
+        dataPackageContents
+            .filter { $0.hasSuffix(".pref") && notHiddenFile($0) }
+            .sorted { prefFilePriority($0) < prefFilePriority($1) }
+    }
+
+    func mergedPreferences() -> TAKPreferences {
+        var merged = TAKPreferences()
+        let prefFiles = retrieveAllPrefsFiles()
+
+        for prefFile in prefFiles {
+            merged.merge(from: parsePrefsFile(prefsFile: prefFile))
+        }
+
+        if merged.userCertificateFile.isEmpty && merged.serverConnectionString.isEmpty {
+            let manifestPrefsFile = manifestParser.prefsFile()
+            if !manifestPrefsFile.isEmpty {
+                merged.merge(from: parsePrefsFile(prefsFile: manifestPrefsFile))
+            }
+        }
+
+        return merged
+    }
+
+    func prefFilePriority(_ path: String) -> Int {
+        let name = (path.split(separator: "/").last.map(String.init) ?? path).lowercased()
+        if name.contains("channel") {
+            return 100
+        }
+        if name.contains("atak_preferences") || (name.hasPrefix("z_") && !name.contains("tak")) {
+            return 50
+        }
+        return 0
+    }
+
+    func resolveCertificateData(prefPath: String, fileName: String) -> Data {
+        if !prefPath.isEmpty {
+            let data = retrieveFileFromArchive(fileName: prefPath)
+            if !data.isEmpty {
+                return data
+            }
+        }
+        if !fileName.isEmpty {
+            let data = retrieveFileFromArchive(fileName: fileName)
+            if !data.isEmpty {
+                return data
+            }
+        }
+        let targetName = fileName.lowercased()
+        if let match = dataPackageContents.first(where: {
+            let component = $0.split(separator: "/").last.map(String.init) ?? $0
+            return component.lowercased() == targetName
+        }) {
+            return retrieveFileFromArchive(fileName: match)
+        }
+        return Data()
     }
 
 }

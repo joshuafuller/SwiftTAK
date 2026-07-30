@@ -20,6 +20,7 @@ public struct TestConstants {
     static let DP_MULTI_FILE_NO_MANIFEST_ZIP = "multifile-data-package-no-manifest-zip"
     static let DP_ATAK_MULTI_CERT = "tak-multi-cert-atak-format"
     static let DP_NON_MATCHING_CERT_NAME = "tak-non-matching-cert-name"
+    static let DP_MULTI_PREF_ENROLLMENT = "tak-multi-pref-enrollment"
     static let DP_FILE_EXTENSION = "zip"
     
     // Data Package Testing Constants

@@ -9,6 +9,25 @@ import XCTest
 
 @testable import SwiftTAK
 
+final class DPMultiPrefEnrollmentTests: DataPackageParserTests {
+    override func dataPackageFilename() -> String {
+        TestConstants.DP_MULTI_PREF_ENROLLMENT
+    }
+
+    override class var defaultTestSuite: XCTestSuite {
+        XCTestSuite(forTestCaseClass: Self.self)
+    }
+
+    func testLoadsProfilePreferenceItems() {
+        let parser = loadParser(fileName: dataPackageFilename(), fileExtension: TestConstants.DP_FILE_EXTENSION)
+        parser.parse()
+        XCTAssertEqual(parser.packageContents.preferenceItems["locationCallsign"], "TAKAware Test")
+        XCTAssertEqual(parser.packageContents.preferenceItems["locationTeam"], "Blue")
+        XCTAssertEqual(parser.packageContents.preferenceItems["atakRoleType"], "Team Member")
+        XCTAssertEqual(parser.packageContents.preferenceItems["connectString0"], "192.168.0.49:8089:ssl")
+    }
+}
+
 final class DPMultipleServerCertsATAKFormat: DataPackageParserTests {
     override func dataPackageFilename() -> String {
         TestConstants.DP_ATAK_MULTI_CERT

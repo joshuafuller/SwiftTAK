@@ -37,7 +37,14 @@ public struct TAKConstants {
     
     // Helper Functions
     public static func certificateSigningPath(clientUid: String, appVersion: String) -> String {
-        return TAKConstants.CSR_PATH
+        // Build with URLComponents so spaces/parentheses in appVersion are percent-encoded.
+        var components = URLComponents()
+        components.path = "/Marti/api/tls/signClient/v2"
+        components.queryItems = [
+            URLQueryItem(name: "clientUid", value: clientUid),
+            URLQueryItem(name: "version", value: appVersion)
+        ]
+        return components.string ?? TAKConstants.CSR_PATH
             .replacingOccurrences(of: "$UID", with: clientUid)
             .replacingOccurrences(of: "$VERSION", with: appVersion)
     }
@@ -54,6 +61,20 @@ public enum TeamRole: String, CaseIterable, Identifiable, Codable {
     case K9 = "K9"
     
     public var id: Self { self }
+
+    public static func match(preferenceValue value: String) -> TeamRole? {
+        let key = preferenceMatchKey(value)
+        guard !key.isEmpty else { return nil }
+        return TeamRole.allCases.first { preferenceMatchKey($0.rawValue) == key }
+    }
+
+    public static func normalizedPreferenceValue(_ value: String) -> String? {
+        guard let matched = match(preferenceValue: value) else {
+            TAKLogger.error("[TeamRole] Rejecting unrecognized role preference value: \(value)")
+            return nil
+        }
+        return matched.rawValue
+    }
 }
 
 public enum TeamColor: String, CaseIterable, Identifiable, Codable {
@@ -73,6 +94,26 @@ public enum TeamColor: String, CaseIterable, Identifiable, Codable {
     case Yellow = "Yellow"
     
     public var id: Self { self }
+
+    public static func match(preferenceValue value: String) -> TeamColor? {
+        let key = preferenceMatchKey(value)
+        guard !key.isEmpty else { return nil }
+        return TeamColor.allCases.first { preferenceMatchKey($0.rawValue) == key }
+    }
+
+    public static func normalizedPreferenceValue(_ value: String) -> String? {
+        guard let matched = match(preferenceValue: value) else {
+            TAKLogger.error("[TeamColor] Rejecting unrecognized team color preference value: \(value)")
+            return nil
+        }
+        return matched.rawValue
+    }
+}
+
+private func preferenceMatchKey(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: " ", with: "")
 }
 
 public enum UnitType: String, CaseIterable, Identifiable, Codable {
